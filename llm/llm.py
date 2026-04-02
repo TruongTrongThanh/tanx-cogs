@@ -279,7 +279,8 @@ class LLM(commands.Cog):
         user_message: str, 
         system_prompt: Optional[str] = None,
         max_tokens: int = 500,
-        use_tools: bool = True
+        use_tools: bool = True,
+        image_urls: Optional[List[str]] = None
     ) -> Optional[str]:
         """
         Call OpenRouter API to get LLM response with tool calling support.
@@ -289,6 +290,7 @@ class LLM(commands.Cog):
             system_prompt (str, optional): System prompt to guide the LLM
             max_tokens (int): Maximum tokens in response
             use_tools (bool): Whether to enable tool calling
+            image_urls (List[str], optional): Image URLs to send for vision context
             
         Returns:
             str: LLM response, or None if error occurred
@@ -300,7 +302,19 @@ class LLM(commands.Cog):
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": user_message})
+        
+        # Format user message with images if provided (for vision models)
+        if image_urls:
+            content = [{"type": "text", "text": user_message}]
+            for img_url in image_urls:
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": img_url}
+                })
+            messages.append({"role": "user", "content": content})
+            log.info(f"Sending message with {len(image_urls)} image(s) to LLM")
+        else:
+            messages.append({"role": "user", "content": user_message})
         
         # Try to get response with tool calling (may require multiple iterations)
         max_iterations = 5
@@ -458,23 +472,20 @@ class LLM(commands.Cog):
             # Extract image URLs from message if any
             image_urls = self._extract_image_urls(message)
             
-            # Prepare user message with image URLs if present
+            # Prepare user message
             user_message = message.content
-            if image_urls:
-                user_message += "\n\nAttached images:"
-                for url in image_urls:
-                    user_message += f"\n- {url}"
             
             system_prompt = self._get_system_prompt(response_type)
             if image_urls:
                 system_prompt += (
-                    "\n\nNote: The user has attached images. If they want to process an image, "
-                    "use the process_image tool with the provided image URL(s)."
+                    "\n\nNote: The user has attached images which you can see. "
+                    "If they want to process/edit an image, use the process_image tool with the provided image URL(s)."
                 )
             
             llm_response = await self.call_openrouter(
                 user_message=user_message,
-                system_prompt=system_prompt
+                system_prompt=system_prompt,
+                image_urls=image_urls
             )
             
             if llm_response:
