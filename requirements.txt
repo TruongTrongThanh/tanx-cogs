@@ -1,2 +1,2 @@
 Red-DiscordBot==3.5.24
-aiohttp>=3.8.0
+any-llm-sdk[openai]>=1.13.0

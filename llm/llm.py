@@ -1,20 +1,21 @@
 from redbot.core import commands
 import discord
 import logging
-import aiohttp
 import os
 import json
 import base64
 import io
 import re
+import asyncio
 from typing import Optional, List, Dict, Any, Tuple
+from any_llm import completion
 
 log = logging.getLogger("red.tanx.llm")
 
 
 class LLM(commands.Cog):
     """
-    LLM Cog that uses OpenRouter API to respond to:
+    LLM Cog that uses any-llm SDK to respond to:
     1. Bot mentions
     2. User complaints
     3. Questions requiring calculation or search
@@ -22,21 +23,27 @@ class LLM(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
-        self.api_key = os.getenv("OPENROUTER_API_KEY")
-        self.api_url = "https://openrouter.ai/api/v1/chat/completions"
-        self.model = os.getenv("OPENROUTER_MODEL", "openai/gpt-5.4-mini")
+        # Get provider and model from environment variables
+        # Format: PROVIDER:MODEL (e.g., "openai:gpt-4o", "anthropic:claude-3-5-sonnet-20241022")
+        model_string = os.getenv("LLM_MODEL", "openai:gpt-4o-mini")
+        if ":" in model_string:
+            self.provider, self.model = model_string.split(":", 1)
+        else:
+            # Default to OpenAI if no provider specified
+            self.provider = "openai"
+            self.model = model_string
         
         # Initialize tool registry
         from .tools import ToolRegistry
         self.tool_registry = ToolRegistry()
         log.info(f"Loaded {len(self.tool_registry.list_tools())} tools: {', '.join(self.tool_registry.list_tools())}")
-        
-        if not self.api_key:
-            log.warning("OPENROUTER_API_KEY environment variable not set.")
+        log.info(f"Using LLM provider: {self.provider}, model: {self.model}")
     
     def is_configured(self) -> bool:
-        """Check if OpenRouter API is properly configured"""
-        return bool(self.api_key)
+        """Check if LLM is properly configured"""
+        # any-llm checks for provider-specific API keys automatically
+        # We assume it's configured if provider and model are set
+        return bool(self.provider and self.model)
     
     async def _classify_message(self, message: str, classification_type: str) -> bool:
         """
@@ -73,7 +80,7 @@ class LLM(commands.Cog):
             return False
         
         try:
-            response = await self.call_openrouter(
+            response = await self.call_llm(
                 user_message=message,
                 system_prompt=system_prompt,
                 max_tokens=16,
@@ -128,17 +135,21 @@ class LLM(commands.Cog):
         prompts = {
             "mention": (
                 "You are a helpful Discord bot assistant. Respond naturally and helpfully to user messages. "
-                "Be friendly, concise, and engaging. Keep responses under 300 words."
+                "Be friendly, concise, and engaging. Keep responses under 300 words. "
+                "If you need more context about the conversation, you can use the 'search_discord_messages' tool "
+                "to look up previous messages in the channel."
             ),
             "complaint": (
                 "You are a supportive Discord bot. The user seems to be expressing a complaint or frustration. "
                 "Acknowledge their feelings empathetically and offer helpful suggestions if appropriate. "
-                "Be understanding and constructive. Keep responses under 300 words."
+                "Be understanding and constructive. Keep responses under 300 words. "
+                "If you need more context, you can search recent messages using the 'search_discord_messages' tool."
             ),
             "question": (
                 "You are a knowledgeable Discord bot assistant. The user has asked a question. "
                 "IMPORTANT: Only answer if you have enough information to provide a helpful response. "
                 "If you don't have sufficient information, politely say so and explain what information you would need. "
+                "You can use the 'search_discord_messages' tool to find relevant context from recent messages. "
                 "Be accurate and concise. Keep responses under 300 words."
             )
         }
@@ -151,6 +162,44 @@ class LLM(commands.Cog):
             if attachment.content_type and attachment.content_type.startswith('image/'):
                 image_urls.append(attachment.url)
         return image_urls
+    
+    def _format_message_for_llm(self, message: discord.Message) -> str:
+        """Format Discord message for LLM by replacing user IDs with readable usernames.
+        
+        Args:
+            message: Discord message object
+            
+        Returns:
+            Formatted message content with readable mentions
+        """
+        content = message.content
+        
+        # Replace user mentions <@USER_ID> with @username
+        for mention in message.mentions:
+            user_id_mention = f"<@{mention.id}>"
+            user_id_mention_nick = f"<@!{mention.id}>"  # Discord also uses <@!ID> for nicknames
+            readable_mention = f"@{mention.name}"
+            
+            content = content.replace(user_id_mention, readable_mention)
+            content = content.replace(user_id_mention_nick, readable_mention)
+        
+        # Replace role mentions <@&ROLE_ID> with @role_name
+        for role in message.role_mentions:
+            role_id_mention = f"<@&{role.id}>"
+            readable_mention = f"@{role.name}"
+            content = content.replace(role_id_mention, readable_mention)
+        
+        # Replace channel mentions <#CHANNEL_ID> with #channel-name
+        if message.guild:
+            # Use regex to find all channel mentions
+            channel_pattern = re.compile(r'<#(\d+)>')
+            for match in channel_pattern.finditer(content):
+                channel_id = int(match.group(1))
+                channel = message.guild.get_channel(channel_id)
+                if channel:
+                    content = content.replace(f"<#{channel_id}>", f"#{channel.name}")
+        
+        return content
     
     def _parse_processed_images(self, response: str) -> Tuple[str, List[Dict[str, Any]]]:
         """Parse processed images from tool response.
@@ -274,7 +323,7 @@ class LLM(commands.Cog):
         """
         return await self._classify_message(message, "question")
     
-    async def call_openrouter(
+    async def call_llm(
         self, 
         user_message: str, 
         system_prompt: Optional[str] = None,
@@ -283,7 +332,7 @@ class LLM(commands.Cog):
         image_urls: Optional[List[str]] = None
     ) -> Optional[str]:
         """
-        Call OpenRouter API to get LLM response with tool calling support.
+        Call LLM API using any-llm SDK to get response with tool calling support.
         
         Args:
             user_message (str): The user's message
@@ -296,7 +345,7 @@ class LLM(commands.Cog):
             str: LLM response, or None if error occurred
         """
         if not self.is_configured():
-            log.error("OpenRouter API not configured.")
+            log.error("LLM not configured.")
             return None
         
         messages = []
@@ -305,6 +354,13 @@ class LLM(commands.Cog):
         
         # Format user message with images if provided (for vision models)
         if image_urls:
+            # # Check if we're using a vision-capable model
+            # vision_models = ["gpt-4o", "gpt-4o-mini", "gpt-4-vision", "claude-3", "gemini"]
+            # is_vision_model = any(vm in self.model.lower() for vm in vision_models)
+            
+            # if not is_vision_model:
+            #     log.warning(f"Images provided but model {self.model} may not support vision. Consider using a vision-capable model.")
+            
             content = [{"type": "text", "text": user_message}]
             for img_url in image_urls:
                 content.append({
@@ -313,6 +369,7 @@ class LLM(commands.Cog):
                 })
             messages.append({"role": "user", "content": content})
             log.info(f"Sending message with {len(image_urls)} image(s) to LLM")
+            log.debug(f"Image URLs: {image_urls}")
         else:
             messages.append({"role": "user", "content": user_message})
         
@@ -320,133 +377,143 @@ class LLM(commands.Cog):
         max_iterations = 5
         image_tool_results = []  # Track tool results containing IMAGE_PROCESSED
         
-        for _ in range(max_iterations):
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/tanx-cogs",
-                "X-Title": "Tanx Discord Bot"
-            }
-            
-            payload = {
-                "model": self.model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": 0.7
-            }
-            
-            # Add tools if enabled
-            if use_tools and self.tool_registry:
-                payload["tools"] = self.tool_registry.get_tool_schemas()
-                payload["tool_choice"] = "auto"
-            
+        for iteration in range(max_iterations):
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        self.api_url,
-                        json=payload,
-                        headers=headers,
-                        timeout=aiohttp.ClientTimeout(total=30)
-                    ) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            log.error(f"OpenRouter API returned status {response.status}: {error_text}")
-                            return None
+                # Prepare completion arguments
+                completion_args = {
+                    "model": self.model,
+                    "provider": self.provider,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": 0.7
+                }
+                
+                # Add tools if enabled
+                if use_tools and self.tool_registry:
+                    completion_args["tools"] = self.tool_registry.get_tool_schemas()
+                    completion_args["tool_choice"] = "auto"
+                
+                # Log what we're sending (without full base64 images)
+                log.debug(f"Iteration {iteration + 1}: Sending {len(messages)} message(s) to {self.provider}:{self.model}")
+                if use_tools:
+                    log.debug(f"Tool calling enabled with {len(completion_args.get('tools', []))} tool(s)")
+                
+                # Run synchronous completion in executor to avoid blocking
+                # Need to capture completion_args in a default parameter to avoid closure issues
+                loop = asyncio.get_event_loop()
+                def call_completion(args=completion_args):
+                    return completion(**args)
+                response = await loop.run_in_executor(None, call_completion)
+                
+                if not response or not hasattr(response, 'choices') or len(response.choices) == 0:
+                    log.error(f"Unexpected API response format")
+                    return None
+                
+                choice = response.choices[0]
+                message = choice.message
+                
+                # Check if LLM wants to call tools
+                if hasattr(message, 'tool_calls') and message.tool_calls:
+                    log.info(f"LLM requested {len(message.tool_calls)} tool call(s)")
+                    
+                    # Add assistant message with tool calls to history
+                    # Convert message to dict format for next iteration
+                    assistant_msg = {"role": "assistant", "content": message.content or ""}
+                    if message.tool_calls:
+                        assistant_msg["tool_calls"] = [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments
+                                }
+                            }
+                            for tc in message.tool_calls
+                        ]
+                    messages.append(assistant_msg)
+                    
+                    # Execute each tool call
+                    for tool_call in message.tool_calls:
+                        function_name = tool_call.function.name
+                        function_args = json.loads(tool_call.function.arguments)
                         
-                        data = await response.json()
+                        log.info(f"Executing tool: {function_name} with args: {function_args}")
                         
-                        if "choices" not in data or len(data["choices"]) == 0:
-                            log.error(f"Unexpected API response format: {data}")
-                            return None
+                        # Execute the tool
+                        result = self.tool_registry.execute_tool(function_name, function_args)
                         
-                        choice = data["choices"][0]
-                        message = choice["message"]
-                        
-                        # Check if LLM wants to call tools
-                        if message.get("tool_calls"):
-                            log.info(f"LLM requested {len(message['tool_calls'])} tool call(s)")
+                        # Log tool result for debugging
+                        if "[IMAGE_PROCESSED]" in result:
+                            log.info(f"Tool {function_name} returned IMAGE_PROCESSED marker")
+                            log.debug(f"Tool result preview: {result[:300]}...")
+                            # Store this result so we can append it to final response
+                            image_tool_results.append(result)
                             
-                            # Add assistant message with tool calls
-                            messages.append(message)
-                            
-                            # Execute each tool call
-                            for tool_call in message["tool_calls"]:
-                                function_name = tool_call["function"]["name"]
-                                function_args = json.loads(tool_call["function"]["arguments"])
-                                
-                                log.info(f"Executing tool: {function_name} with args: {function_args}")
-                                
-                                # Execute the tool
-                                result = self.tool_registry.execute_tool(function_name, function_args)
-                                
-                                # Log tool result for debugging
-                                if "[IMAGE_PROCESSED]" in result:
-                                    log.info(f"Tool {function_name} returned IMAGE_PROCESSED marker")
-                                    # Log first 300 chars of result
-                                    log.debug(f"Tool result preview: {result[:300]}...")
-                                    # Store this result so we can append it to final response
-                                    image_tool_results.append(result)
-                                    
-                                    # Send simplified message to LLM (don't waste tokens on base64)
-                                    llm_message = "Image processed successfully. The processed image will be sent to the user."
-                                else:
-                                    log.info(f"Tool {function_name} returned: {result[:200]}...")
-                                    llm_message = result
-                                
-                                # Add tool response to messages
-                                messages.append({
-                                    "role": "tool",
-                                    "tool_call_id": tool_call["id"],
-                                    "name": function_name,
-                                    "content": llm_message
-                                })
-                            
-                            # Log the messages being sent back to LLM
-                            log.info(f"Sending {len(messages)} messages back to LLM for next iteration")
-                            
-                            # Continue to next iteration to get final response
-                            continue
-                        
-                        #  No tool calls, return the content
-                        if message.get("content"):
-                            content = message["content"]
-                            
-                            # Append any IMAGE_PROCESSED blocks from tool results
-                            if image_tool_results:
-                                log.info(f"Appending {len(image_tool_results)} image tool result(s) to response")
-                                for img_result in image_tool_results:
-                                    content += "\n\n" + img_result
-                            
-                            # Log if response contains image markers
-                            if "[IMAGE_PROCESSED]" in content:
-                                log.info("Final response contains [IMAGE_PROCESSED] marker")
-                                log.debug(f"Final response preview: {content[:300]}...")
-                            
-                            return content
+                            # Send simplified message to LLM (don't waste tokens on base64)
+                            llm_message = "Image processed successfully. The processed image will be sent to the user."
                         else:
-                            log.error(f"No content in response: {message}")
-                            return None
-                            
-            except aiohttp.ClientError as e:
-                log.error(f"Network error calling OpenRouter API: {e}")
-                return None
+                            log.info(f"Tool {function_name} returned: {result[:200]}...")
+                            llm_message = result
+                        
+                        # Add tool response to messages
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": function_name,
+                            "content": llm_message
+                        })
+                    
+                    # Log the messages being sent back to LLM
+                    log.info(f"Sending {len(messages)} messages back to LLM for next iteration")
+                    
+                    # Continue to next iteration to get final response
+                    continue
+                
+                # No tool calls, return the content
+                if hasattr(message, 'content'):
+                    content = message.content or ""
+                    
+                    # If content is empty and we have no tool results, this might be an error
+                    if not content and not image_tool_results:
+                        log.warning(f"LLM returned empty content with no tool calls on iteration {iteration + 1}")
+                        log.warning(f"Full message: {message}")
+                        # Return a helpful error message instead of None
+                        return "I received your request but wasn't sure how to respond. Could you please rephrase or provide more details?"
+                    
+                    # Append any IMAGE_PROCESSED blocks from tool results
+                    if image_tool_results:
+                        log.info(f"Appending {len(image_tool_results)} image tool result(s) to response")
+                        for img_result in image_tool_results:
+                            content += "\n\n" + img_result
+                    
+                    # Log if response contains image markers
+                    if "[IMAGE_PROCESSED]" in content:
+                        log.info("Final response contains [IMAGE_PROCESSED] marker")
+                        log.debug(f"Final response preview: {content[:300]}...")
+                    
+                    return content if content else "I processed your request but don't have a text response."
+                else:
+                    log.error(f"Message has no content attribute: {message}")
+                    return None
+                    
             except json.JSONDecodeError as e:
                 log.error(f"Error parsing tool arguments: {e}")
                 return None
             except Exception as e:
-                log.error(f"Unexpected error calling OpenRouter API: {e}")
+                log.error(f"Unexpected error calling LLM API: {e}", exc_info=True)
                 return None
         
         log.warning(f"Reached max iterations ({max_iterations}) in tool calling loop")
-        response = "I encountered an issue processing your request with the available tools."
+        response_text = "I encountered an issue processing your request with the available tools."
         
         # Still append any image results even if we hit max iterations
         if image_tool_results:
             log.info(f"Appending {len(image_tool_results)} image tool result(s) to fallback response")
             for img_result in image_tool_results:
-                response += "\n\n" + img_result
+                response_text += "\n\n" + img_result
         
-        return response
+        return response_text
     
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -469,20 +536,29 @@ class LLM(commands.Cog):
             return
         
         async with message.channel.typing():
+            # Set Discord context for tools that need it
+            self.tool_registry.set_discord_context(message.channel, message)
+            
             # Extract image URLs from message if any
             image_urls = self._extract_image_urls(message)
             
-            # Prepare user message
-            user_message = message.content
+            # Prepare user message with readable mentions and sender prefix
+            formatted_content = self._format_message_for_llm(message)
+            user_message = f"@{message.author.name} said: {formatted_content}"
             
             system_prompt = self._get_system_prompt(response_type)
             if image_urls:
+                # Format image URLs for the prompt
+                urls_list = "\n".join(f"- Image {i+1}: {url}" for i, url in enumerate(image_urls))
                 system_prompt += (
-                    "\n\nNote: The user has attached images which you can see. "
-                    "If they want to process/edit an image, use the process_image tool with the provided image URL(s)."
+                    f"\n\nIMPORTANT: The user has attached {len(image_urls)} image(s). You can see the image(s) in the message. "
+                    "If the user wants to edit, process, or transform the image (resize, blur, adjust, etc.), "
+                    "you MUST use the 'process_image' tool with the exact image URL and an appropriate ImageMagick command. "
+                    f"Do NOT just describe the image - actually process it using the tool if requested.\n\n"
+                    f"Available image URLs:\n{urls_list}"
                 )
             
-            llm_response = await self.call_openrouter(
+            llm_response = await self.call_llm(
                 user_message=user_message,
                 system_prompt=system_prompt,
                 image_urls=image_urls
@@ -505,11 +581,11 @@ class LLM(commands.Cog):
         Usage: .llmtest <your prompt>
         """
         if not self.is_configured():
-            await ctx.send("❌ OpenRouter API not configured. Please set OPENROUTER_API_KEY environment variable.")
+            await ctx.send("❌ LLM not configured. Please set LLM_MODEL environment variable (format: provider:model).")
             return
         
         async with ctx.typing():
-            response = await self.call_openrouter(
+            response = await self.call_llm(
                 user_message=prompt,
                 system_prompt="You are a helpful assistant. Respond concisely."
             )
@@ -526,9 +602,9 @@ class LLM(commands.Cog):
         Check LLM cog configuration status (owner only).
         """
         status_msg = "**LLM Cog Status:**\n"
-        status_msg += f"✅ API Key: {'Configured' if self.api_key else '❌ Not set'}\n"
+        status_msg += f"✅ Provider: {self.provider}\n"
         status_msg += f"✅ Model: {self.model}\n"
-        status_msg += f"✅ API URL: {self.api_url}\n"
+        status_msg += f"✅ SDK: any-llm\n"
         
         # List available tools
         tools = self.tool_registry.list_tools()

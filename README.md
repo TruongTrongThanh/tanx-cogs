@@ -5,18 +5,26 @@ Custom cogs for Red-DiscordBot with AI/LLM capabilities.
 ## Available Cogs
 
 ### 🤖 LLM - AI-Powered Conversational Bot
-Uses OpenRouter API to provide intelligent responses in Discord.
+Uses any-llm SDK to provide intelligent responses from multiple LLM providers.
 
 **Features:**
 - Responds to @mentions automatically
 - Detects and empathetically responds to complaints
 - Answers questions requiring calculation or research
 - Smart detection - only responds when appropriate
+- Supports multiple LLM providers (OpenAI, Anthropic, Mistral, Ollama, etc.)
 
 **Setup:**
 ```bash
-# Set environment variable
-OPENROUTER_API_KEY=your_api_key_here
+# Set environment variables
+# Format: PROVIDER:MODEL (e.g., "openai:gpt-4o-mini", "anthropic:claude-3-5-sonnet-20241022")
+LLM_MODEL=openai:gpt-4o-mini
+
+# Set provider-specific API key
+OPENAI_API_KEY=your_api_key_here
+# OR
+ANTHROPIC_API_KEY=your_api_key_here
+# OR any other supported provider
 
 # Load the cog
 [p]load llm
@@ -60,6 +68,6 @@ pip install -r requirements.txt
 
 ## Requirements
 - Red-DiscordBot 3.5.24+
-- Python 3.8+
-- aiohttp
+- Python 3.11+
+- any-llm-sdk
 - Environment variables for API keys

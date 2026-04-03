@@ -1,7 +1,7 @@
 # LLM Cog for Tanx Discord Bot
 
 ## Overview
-This cog uses OpenRouter API to provide intelligent LLM-powered responses in Discord. It automatically responds to:
+This cog uses the any-llm SDK to provide intelligent LLM-powered responses in Discord with support for multiple providers. It automatically responds to:
 
 1. **Bot Mentions** - When any user @mentions the bot in any channel
 2. **Complaints** - When users express frustration or complaints
@@ -14,11 +14,26 @@ This cog uses OpenRouter API to provide intelligent LLM-powered responses in Dis
 Set the following environment variables:
 
 ```bash
-# Required
-OPENROUTER_API_KEY=your_openrouter_api_key_here
+# Required - specify provider and model
+# Format: PROVIDER:MODEL
+LLM_MODEL=openai:gpt-4o-mini
+# OR
+LLM_MODEL=anthropic:claude-3-5-sonnet-20241022
+# OR
+LLM_MODEL=mistral:mistral-small-latest
+# etc.
 
-# Optional (defaults to free model)
-OPENROUTER_MODEL=meta-llama/llama-3.1-8b-instruct:free
+# Required - provider-specific API key
+# For OpenAI:
+OPENAI_API_KEY=your_openai_api_key_here
+
+# For Anthropic:
+# ANTHROPIC_API_KEY=your_anthropic_api_key_here
+
+# For Mistral:
+# MISTRAL_API_KEY=your_mistral_api_key_here
+
+# For other providers, see: https://mozilla-ai.github.io/any-llm/providers/
 
 # Optional - for web search tool
 BRAVE_SEARCH_API_KEY=your_brave_search_api_key_here
@@ -28,11 +43,26 @@ WINDMILL_TOKEN=your_windmill_token_here
 WINDMILL_URL=your_windmill_url_here
 ```
 
-### 2. Get OpenRouter API Key
-1. Visit [OpenRouter](https://openrouter.ai/)
-2. Sign up for an account
-3. Generate an API key from your dashboard
-4. Set the `OPENROUTER_API_KEY` environment variable
+### 2. Get API Keys
+You can use any supported provider from [any-llm](https://mozilla-ai.github.io/any-llm/providers/):
+
+**OpenAI:**
+1. Visit [OpenAI Platform](https://platform.openai.com/)
+2. Create an account and generate an API key
+3. Set `OPENAI_API_KEY` environment variable
+
+**Anthropic:**
+1. Visit [Anthropic Console](https://console.anthropic.com/)
+2. Create an account and generate an API key
+3. Set `ANTHROPIC_API_KEY` environment variable
+
+**Mistral:**
+1. Visit [Mistral AI](https://console.mistral.ai/)
+2. Create an account and generate an API key
+3. Set `MISTRAL_API_KEY` environment variable
+
+**Other Providers:**
+See the [any-llm providers documentation](https://mozilla-ai.github.io/any-llm/providers/) for a full list.
 
 ### 3. Install Dependencies
 ```bash
@@ -40,7 +70,10 @@ pip install -r requirements.txt
 ```
 
 ### 4. Load the Cog
-In 
+In Discord, use the Red-DiscordBot commands:
+```
+[p]load llm
+```
 
 ### 5. (Optional) Enable Web Search
 To enable the web search tool:
@@ -63,21 +96,29 @@ To enable the image processing tool:
 4. Set environment variables:
    - `WINDMILL_TOKEN=your_token`
    - `WINDMILL_URL=your_windmill_url`
-5. Restart the botDiscord, use the Red-DiscordBot commands:
-```
-[p]load llm
-```
+5. Restart the bot
 
 ## Available Models
-You can use any model available on OpenRouter. Some popular free options:
-- `meta-llama/llama-3.1-8b-instruct:free` (default)
-- `google/gemini-flash-1.5:free`
-- `mistralai/mistral-7b-instruct:free`
+You can use any model from any supported provider. Some popular options:
 
-For better responses, consider paid models:
-- `anthropic/claude-3-sonnet`
-- `openai/gpt-4-turbo`
-- `google/gemini-pro-1.5`
+**OpenAI:**
+- `openai:gpt-4o` - Latest flagship model
+- `openai:gpt-4o-mini` - Fast and affordable
+- `openai:o1-preview` - Advanced reasoning model
+
+**Anthropic:**
+- `anthropic:claude-3-5-sonnet-20241022` - Most capable Claude model
+- `anthropic:claude-3-haiku-20240307` - Fast and affordable
+
+**Mistral:**
+- `mistral:mistral-large-latest` - Most capable Mistral model
+- `mistral:mistral-small-latest` - Fast and affordable
+
+**Ollama (Local):**
+- `ollama:llama3.2` - Run models locally
+- `ollama:mistral` - Local Mistral models
+
+See the full list at: https://mozilla-ai.github.io/any-llm/providers/
 
 ## Owner Commands
 
@@ -152,7 +193,7 @@ The bot uses **intelligent LLM-based detection** instead of simple keyword match
 
 ### Detection Process
 1. **Initial Filtering** - Skips bot messages, empty messages, and unconfigured API
-2. **Message Classification** - Uses OpenRouter API with specialized prompts to classify messages
+2. **Message Classification** - Uses LLM with specialized prompts to classify messages
 3. **Response Generation** - If classification matches criteria, generates contextual response
 4. **Smart Response** - Bot uses different system prompts based on the detected message type
 
@@ -184,31 +225,33 @@ Bot: To calculate 15% of 250: 250 × 0.15 = 37.5
 ```
 
 ## Privacy & Best Practices
-- Messages are sent to OpenRouter API for both detection and response generation
-- **Note:** Detection uses minimal tokens (10 tokens max) to classify messages efficiently
+- Messages are sent to your chosen LLM provider for both detection and response generation
+- **Note:** Detection uses minimal tokens (16 tokens max) to classify messages efficiently
 - Consider channel permissions to limit where the bot responds
-- Monitor API usage and costs (free models have rate limits)
-- Review OpenRouter's privacy policy and terms of service
+- Monitor API usage and costs
+- Review your provider's privacy policy and terms of service
 
 ## Performance Considerations
 - **Detection Latency:** Each message requires 1-2 LLM calls for classification (complaint/question detection)
-- **Cost Optimization:** Detection uses max_tokens=10 to minimize API costs
-- **Free Tier:** Free models like Llama 3.1 have rate limits; consider paid models for high-traffic servers
+- **Cost Optimization:** Detection uses max_tokens=16 to minimize API costs
+- **Rate Limits:** Different providers have different rate limits; monitor your usage
 - **Parallel Processing:** Bot processes one message at a time to avoid overwhelming the API
 
 ## Troubleshooting
 
 **Bot not responding?**
-1. Check if `OPENROUTER_API_KEY` is set correctly
-2. Use `.llmstatus` to verify configuration
-3. Check bot permissions (needs Read Messages, Send Messages)
-4. Check logs for errors
+1. Check if `LLM_MODEL` environment variable is set correctly (format: `provider:model`)
+2. Check if provider-specific API key is set (e.g., `OPENAI_API_KEY`)
+3. Use `.llmstatus` to verify configuration
+4. Check bot permissions (needs Read Messages, Send Messages)
+5. Check logs for errors
 
 **API errors?**
-1. Verify API key is valid
-2. Check if you've exceeded rate limits (free tier)
-3. Try a different model
-4. Check OpenRouter service status
+1. Verify API key is valid for your provider
+2. Check if you've exceeded rate limits
+3. Try a different model from the same provider
+4. Check your provider's service status
+5. Ensure the model name is correct for your provider
 
 ## Support
 For issues or questions, check the logs or contact the bot administrator.

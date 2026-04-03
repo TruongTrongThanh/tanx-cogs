@@ -18,6 +18,12 @@ class ToolRegistry:
         self.tools: Dict[str, BaseTool] = {}
         self._load_tools()
     
+    def set_discord_context(self, channel, message):
+        """Set Discord context for tools that need it."""
+        for tool in self.tools.values():
+            if hasattr(tool, 'set_context'):
+                tool.set_context(channel, message)
+    
     def _load_tools(self):
         """Automatically load all tools from the tools directory."""
         tools_dir = os.path.dirname(__file__)
