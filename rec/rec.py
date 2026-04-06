@@ -6,8 +6,23 @@ import os
 import sys
 
 # Add parent directory to path to import libraries
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from libraries.windmill_client import get_windmill_client
+cog_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if cog_root not in sys.path:
+    sys.path.insert(0, cog_root)
+
+try:
+    from libraries.windmill_client import get_windmill_client
+except ImportError:
+    # Fallback: try importing from absolute path
+    import importlib.util
+    windmill_path = os.path.join(cog_root, 'libraries', 'windmill_client.py')
+    if os.path.exists(windmill_path):
+        spec = importlib.util.spec_from_file_location("windmill_client", windmill_path)
+        windmill_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(windmill_module)
+        get_windmill_client = windmill_module.get_windmill_client
+    else:
+        raise ImportError(f"Cannot load get_windmill_client from {windmill_path}")
 
 log = logging.getLogger("red.tanx.rec")
 

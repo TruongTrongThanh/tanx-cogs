@@ -1,0 +1,29 @@
+{
+    "name": "LLM",
+    "short": "LLM-powered Discord bot assistant",
+    "description": "An intelligent Discord bot that uses LLM APIs to respond to mentions, complaints, and questions. Supports multiple LLM providers (OpenAI, Anthropic, local models via llamacpp) and includes function calling with tools like calculator, web search, and image processing.",
+    "install_msg": "Thanks for installing LLM cog! Configure your LLM provider using environment variables (LLM_MODEL, LLM_LOCAL, LLM_API_BASE, LLM_SYSTEM_PROMPT_FILE). Make sure to load the 'libraries' cog first.",
+    "author": [
+        "ThanhTT"
+    ],
+    "required_cogs": {
+        "libraries": "Provides WindmillClient for image processing"
+    },
+    "requirements": [
+        "any-llm",
+        "aiohttp"
+    ],
+    "tags": [
+        "llm",
+        "ai",
+        "assistant",
+        "chatbot",
+        "openai",
+        "anthropic",
+        "tools"
+    ],
+    "min_bot_version": "3.4.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}

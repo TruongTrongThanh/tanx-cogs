@@ -1,0 +1,22 @@
+{
+    "name": "Libraries",
+    "short": "Shared utility libraries for tanx-cogs",
+    "description": "Provides common utilities like WindmillClient that can be used by other cogs. This is a utility-only cog with no user-facing commands.",
+    "install_msg": "Thanks for installing Libraries. This is a utility cog that provides shared functionality for other tanx-cogs.",
+    "author": [
+        "ThanhTT"
+    ],
+    "required_cogs": {},
+    "requirements": [
+        "aiohttp"
+    ],
+    "tags": [
+        "utility",
+        "library",
+        "shared"
+    ],
+    "min_bot_version": "3.4.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}

@@ -1,0 +1,23 @@
+{
+    "name": "Rec",
+    "short": "Weekly recommendation scheduler",
+    "description": "Automatically posts recommendations from Windmill API every Saturday at 10:00 AM to a configured Discord channel.",
+    "install_msg": "Thanks for installing Rec cog! Set the REC_CHANNEL_ID environment variable to specify where recommendations should be posted. Make sure to load the 'libraries' cog first.",
+    "author": [
+        "ThanhTT"
+    ],
+    "required_cogs": {
+        "libraries": "Provides WindmillClient for API calls"
+    },
+    "requirements": [],
+    "tags": [
+        "scheduler",
+        "recommendations",
+        "automation",
+        "windmill"
+    ],
+    "min_bot_version": "3.4.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}

@@ -21,10 +21,13 @@ except ImportError:
     # Fallback: try importing from absolute path
     import importlib.util
     windmill_path = os.path.join(cog_root, 'libraries', 'windmill_client.py')
-    spec = importlib.util.spec_from_file_location("windmill_client", windmill_path)
-    windmill_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(windmill_module)
-    WindmillClient = windmill_module.WindmillClient
+    if os.path.exists(windmill_path):
+        spec = importlib.util.spec_from_file_location("windmill_client", windmill_path)
+        windmill_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(windmill_module)
+        WindmillClient = windmill_module.WindmillClient
+    else:
+        raise ImportError(f"Cannot load WindmillClient from {windmill_path}")
 
 from .base import BaseTool
 
