@@ -33,6 +33,27 @@ class LLM(commands.Cog):
             self.provider = "openai"
             self.model = model_string
         
+        # Check for local LLM configuration
+        self.api_base = None
+        if os.getenv("LLM_LOCAL") == "1":
+            self.provider = "llamacpp"
+            self.model = "local"
+            self.api_base = os.getenv("LLM_API_BASE")
+            log.info(f"Local LLM mode enabled with api_base: {self.api_base}")
+        
+        # Load system prompt from file if specified
+        self.system_prompt = None
+        prompt_file = os.getenv("LLM_SYSTEM_PROMPT_FILE")
+        if prompt_file:
+            try:
+                with open(prompt_file, 'r', encoding='utf-8') as f:
+                    self.system_prompt = f.read().strip()
+                log.info(f"Loaded system prompt from: {prompt_file}")
+            except FileNotFoundError:
+                log.error(f"System prompt file not found: {prompt_file}")
+            except Exception as e:
+                log.error(f"Error loading system prompt file: {e}")
+        
         # Initialize tool registry
         from .tools import ToolRegistry
         self.tool_registry = ToolRegistry()
@@ -130,30 +151,16 @@ class LLM(commands.Cog):
         
         return None
     
-    def _get_system_prompt(self, response_type: str) -> str:
-        """Get appropriate system prompt based on response type."""
-        prompts = {
-            "mention": (
-                "You are a helpful Discord bot assistant. Respond naturally and helpfully to user messages. "
-                "Be friendly, concise, and engaging. Keep responses under 300 words. "
-                "If you need more context about the conversation, you can use the 'search_discord_messages' tool "
-                "to look up previous messages in the channel."
-            ),
-            "complaint": (
-                "You are a supportive Discord bot. The user seems to be expressing a complaint or frustration. "
-                "Acknowledge their feelings empathetically and offer helpful suggestions if appropriate. "
-                "Be understanding and constructive. Keep responses under 300 words. "
-                "If you need more context, you can search recent messages using the 'search_discord_messages' tool."
-            ),
-            "question": (
-                "You are a knowledgeable Discord bot assistant. The user has asked a question. "
-                "IMPORTANT: Only answer if you have enough information to provide a helpful response. "
-                "If you don't have sufficient information, politely say so and explain what information you would need. "
-                "You can use the 'search_discord_messages' tool to find relevant context from recent messages. "
-                "Be accurate and concise. Keep responses under 300 words."
-            )
-        }
-        return prompts.get(response_type, "You are a helpful assistant. Respond concisely.")
+    def _get_system_prompt(self) -> str:
+        """Get system prompt for the bot."""
+        if self.system_prompt:
+            return self.system_prompt
+        
+        # Default prompt if no file is specified
+        return (
+            "You are a helpful Discord bot assistant. Respond naturally and helpfully to user messages. "
+            "Be friendly, concise, and engaging. Keep responses under 300 words."
+        )
     
     def _extract_image_urls(self, message: discord.Message) -> List[str]:
         """Extract image URLs from Discord message attachments."""
@@ -388,6 +395,10 @@ class LLM(commands.Cog):
                     "temperature": 0.7
                 }
                 
+                # Add api_base if configured (for local LLM)
+                if self.api_base:
+                    completion_args["api_base"] = self.api_base
+                
                 # Add tools if enabled
                 if use_tools and self.tool_registry:
                     completion_args["tools"] = self.tool_registry.get_tool_schemas()
@@ -546,7 +557,7 @@ class LLM(commands.Cog):
             formatted_content = self._format_message_for_llm(message)
             user_message = f"@{message.author.name} said: {formatted_content}"
             
-            system_prompt = self._get_system_prompt(response_type)
+            system_prompt = self._get_system_prompt()
             if image_urls:
                 # Format image URLs for the prompt
                 urls_list = "\n".join(f"- Image {i+1}: {url}" for i, url in enumerate(image_urls))
@@ -605,6 +616,13 @@ class LLM(commands.Cog):
         status_msg += f"✅ Provider: {self.provider}\n"
         status_msg += f"✅ Model: {self.model}\n"
         status_msg += f"✅ SDK: any-llm\n"
+        
+        if self.api_base:
+            status_msg += f"✅ API Base: {self.api_base}\n"
+        
+        prompt_file = os.getenv("LLM_SYSTEM_PROMPT_FILE")
+        if prompt_file:
+            status_msg += f"✅ System Prompt File: {prompt_file}\n"
         
         # List available tools
         tools = self.tool_registry.list_tools()
