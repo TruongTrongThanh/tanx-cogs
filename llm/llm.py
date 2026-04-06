@@ -334,7 +334,7 @@ class LLM(commands.Cog):
         self, 
         user_message: str, 
         system_prompt: Optional[str] = None,
-        max_tokens: int = 4096,
+        max_tokens: int = 32000,
         use_tools: bool = True,
         image_urls: Optional[List[str]] = None
     ) -> Optional[str]:
