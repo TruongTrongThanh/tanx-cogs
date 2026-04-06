@@ -104,7 +104,7 @@ class LLM(commands.Cog):
             response = await self.call_llm(
                 user_message=message,
                 system_prompt=system_prompt,
-                max_tokens=16,
+                # max_tokens=16,
                 use_tools=False  # No tools for classification
             )
             
