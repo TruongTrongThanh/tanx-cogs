@@ -64,11 +64,11 @@ class ImageProcessorTool(BaseTool):
                 "magick_command": {
                     "type": "string",
                     "description": (
-                        "ImageMagick command to execute (without 'magick' prefix). "
+                        "ImageMagick command to execute (using 'magick' prefix). "
                         "Always include input and output file names as 'input_img' and 'output_img' in the command. "
                         "Remember to always include the input and output file names in the command."
-                        "Example: 'convert input_img -resize 50% output_img' or "
-                        "'-rotate 90 -quality 85'."
+                        "Example: 'magick input_img -resize 50% output_img' or "
+                        "'magick -rotate 90 -quality 85 input_img output_img'."
                     )
                 }
             },

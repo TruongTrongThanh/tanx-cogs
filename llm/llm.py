@@ -6,9 +6,8 @@ import json
 import base64
 import io
 import re
-import asyncio
 from typing import Optional, List, Dict, Any, Tuple
-from any_llm import completion
+from any_llm import acompletion
 
 log = logging.getLogger("red.tanx.llm")
 
@@ -39,6 +38,8 @@ class LLM(commands.Cog):
             self.provider = "llamacpp"
             self.model = "local"
             self.api_base = os.getenv("LLM_API_BASE")
+            if not self.api_base:
+                log.warning("LLM_LOCAL is enabled but LLM_API_BASE is not set or empty")
             log.info(f"Local LLM mode enabled with api_base: {self.api_base}")
         
         # Load system prompt from file if specified
@@ -409,12 +410,8 @@ class LLM(commands.Cog):
                 if use_tools:
                     log.debug(f"Tool calling enabled with {len(completion_args.get('tools', []))} tool(s)")
                 
-                # Run synchronous completion in executor to avoid blocking
-                # Need to capture completion_args in a default parameter to avoid closure issues
-                loop = asyncio.get_event_loop()
-                def call_completion(args=completion_args):
-                    return completion(**args)
-                response = await loop.run_in_executor(None, call_completion)
+                # Call async completion directly (no executor needed)
+                response = await acompletion(**completion_args)
                 
                 if not response or not hasattr(response, 'choices') or len(response.choices) == 0:
                     log.error(f"Unexpected API response format")
