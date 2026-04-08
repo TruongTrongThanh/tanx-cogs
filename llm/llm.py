@@ -335,7 +335,7 @@ class LLM(commands.Cog):
         self, 
         user_message: str, 
         system_prompt: Optional[str] = None,
-        max_tokens: int = 32000,
+        max_tokens: int = 65536,
         use_tools: bool = True,
         image_urls: Optional[List[str]] = None
     ) -> Optional[str]:
@@ -393,7 +393,8 @@ class LLM(commands.Cog):
                     "provider": self.provider,
                     "messages": messages,
                     "max_tokens": max_tokens,
-                    "temperature": 0.7
+                    "temperature": 1.0,
+                    "top_p": 0.95
                 }
                 
                 # Add api_base if configured (for local LLM)
