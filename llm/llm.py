@@ -60,6 +60,10 @@ class LLM(commands.Cog):
         self.tool_registry = ToolRegistry()
         log.info(f"Loaded {len(self.tool_registry.list_tools())} tools: {', '.join(self.tool_registry.list_tools())}")
         log.info(f"Using LLM provider: {self.provider}, model: {self.model}")
+        
+        # Get max tokens from environment or use default
+        self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "131072"))
+        log.info(f"Max tokens: {self.max_tokens}")
     
     def is_configured(self) -> bool:
         """Check if LLM is properly configured"""
@@ -335,7 +339,7 @@ class LLM(commands.Cog):
         self, 
         user_message: str, 
         system_prompt: Optional[str] = None,
-        max_tokens: int = 65536,
+        max_tokens: Optional[int] = None,
         use_tools: bool = True,
         image_urls: Optional[List[str]] = None
     ) -> Optional[str]:
@@ -345,7 +349,7 @@ class LLM(commands.Cog):
         Args:
             user_message (str): The user's message
             system_prompt (str, optional): System prompt to guide the LLM
-            max_tokens (int): Maximum tokens in response
+            max_tokens (int, optional): Maximum tokens in response (uses LLM_MAX_TOKENS env var if not specified)
             use_tools (bool): Whether to enable tool calling
             image_urls (List[str], optional): Image URLs to send for vision context
             
@@ -355,6 +359,10 @@ class LLM(commands.Cog):
         if not self.is_configured():
             log.error("LLM not configured.")
             return None
+        
+        # Use instance default if not specified
+        if max_tokens is None:
+            max_tokens = self.max_tokens
         
         messages = []
         if system_prompt:
@@ -421,6 +429,17 @@ class LLM(commands.Cog):
                 choice = response.choices[0]
                 message = choice.message
                 
+                # Log reasoning content if present (for reasoning models like DeepSeek R1)
+                if hasattr(message, 'reasoning_content') and message.reasoning_content:
+                    log.info(f"Model reasoning length: {len(message.reasoning_content)} chars")
+                    log.debug(f"Model reasoning: {message.reasoning_content[:500]}...")
+                
+                # Check if response was truncated
+                if hasattr(choice, 'finish_reason'):
+                    if choice.finish_reason == 'length':
+                        log.warning(f"Response truncated at max_tokens ({max_tokens}). Consider increasing max_tokens.")
+                    log.debug(f"Finish reason: {choice.finish_reason}")
+                
                 # Check if LLM wants to call tools
                 if hasattr(message, 'tool_calls') and message.tool_calls:
                     log.info(f"LLM requested {len(message.tool_calls)} tool call(s)")
@@ -486,6 +505,13 @@ class LLM(commands.Cog):
                     # If content is empty and we have no tool results, this might be an error
                     if not content and not image_tool_results:
                         log.warning(f"LLM returned empty content with no tool calls on iteration {iteration + 1}")
+                        
+                        # Check if it's a reasoning model that got cut off
+                        if hasattr(message, 'reasoning_content') and message.reasoning_content:
+                            log.error(f"Reasoning model output was truncated. Reasoning consumed all tokens without producing content.")
+                            log.error(f"Solution: Increase max_tokens (current: {max_tokens}) or use a model without extended reasoning.")
+                            return "⚠️ I started processing your request but ran out of response capacity. This often happens with complex reasoning. Try simplifying your request or ask me to respond more directly."
+                        
                         log.warning(f"Full message: {message}")
                         # Return a helpful error message instead of None
                         return "I received your request but wasn't sure how to respond. Could you please rephrase or provide more details?"
@@ -614,6 +640,7 @@ class LLM(commands.Cog):
         status_msg += f"✅ Provider: {self.provider}\n"
         status_msg += f"✅ Model: {self.model}\n"
         status_msg += f"✅ SDK: any-llm\n"
+        status_msg += f"✅ Max Tokens: {self.max_tokens}\n"
         
         if self.api_base:
             status_msg += f"✅ API Base: {self.api_base}\n"
