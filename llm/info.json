@@ -10,16 +10,13 @@
         "libraries": "Provides WindmillClient for image processing"
     },
     "requirements": [
-        "any-llm",
-        "aiohttp"
+        "any-llm-sdk[openai,llamacpp]>=1.13.0"
     ],
     "tags": [
         "llm",
         "ai",
         "assistant",
         "chatbot",
-        "openai",
-        "anthropic",
         "tools"
     ],
     "min_bot_version": "3.4.0",
