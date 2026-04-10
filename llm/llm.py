@@ -62,7 +62,7 @@ class LLM(commands.Cog):
         log.info(f"Using LLM provider: {self.provider}, model: {self.model}")
         
         # Get max tokens from environment or use default
-        self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "131072"))
+        self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "65535"))
         log.info(f"Max tokens: {self.max_tokens}")
     
     def is_configured(self) -> bool:
@@ -339,6 +339,7 @@ class LLM(commands.Cog):
         self, 
         user_message: str, 
         system_prompt: Optional[str] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
         max_tokens: Optional[int] = None,
         use_tools: bool = True,
         image_urls: Optional[List[str]] = None
@@ -368,6 +369,13 @@ class LLM(commands.Cog):
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         
+        # Prepend conversation history if provided
+        if history:
+            messages.extend(history)
+
+        # log history 
+        log.info(f"Conversation history length: {len(history) if history else 0} messages")
+
         # Format user message with images if provided (for vision models)
         if image_urls:
             # # Check if we're using a vision-capable model
@@ -574,6 +582,21 @@ class LLM(commands.Cog):
             # Set Discord context for tools that need it
             self.tool_registry.set_discord_context(message.channel, message)
             
+            # Gather conversation history (up to 20 messages)
+            history = []
+            async for preceding_message in message.channel.history(limit=20):
+                if preceding_message.author != self.bot.user and not any(preceding_message.content.startswith(p) for p in prefixes):
+                    # Format history message to include the sender's name
+                    history.append({
+                        "role": "user",
+                        "content": f"{preceding_message.author.name} said: {preceding_message.content}"
+                    })
+                elif preceding_message.author == self.bot.user:
+                    history.append({
+                        "role": "assistant",
+                        "content": preceding_message.content
+                    })
+            
             # Extract image URLs from message if any
             image_urls = self._extract_image_urls(message)
             
@@ -596,6 +619,7 @@ class LLM(commands.Cog):
             llm_response = await self.call_llm(
                 user_message=user_message,
                 system_prompt=system_prompt,
+                history=history,
                 image_urls=image_urls
             )
             
